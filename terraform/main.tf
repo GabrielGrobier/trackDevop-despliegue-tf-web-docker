@@ -1,3 +1,12 @@
+terraform {
+  backend "s3" {
+    bucket = "bucket-terraform-trackdevops-gabogrobier"
+    key    = "trackdevops/terraform-tfstate"
+    region = "us-east-1"
+  }
+}
+
+
 module "provider" {
     source = "./modules/provider"
     region = local.region
