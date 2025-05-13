@@ -1,79 +1,78 @@
 name: terraform-web
 on:
-    push:
-        branches:
-            - main
+  push:
+    branches:
+      - main
 jobs:
-    build:
-        runs-on: ubuntu-latest 
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: obtener código
+        uses: actions/checkout@v2
 
-        steps:
-            - name: obtener codigo
-              uses: actions/checkout@v2
+      - name: Configurar Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: 1.11.4
 
-            - name: Configurar Terraform
-              uses: hashicorp/setup-terraform@v1
-              with:
-               terraform_version: 1.11.4
+      - name: Build AWS credentials file
+        run: |
+          mkdir -p $HOME/.aws
+          echo "[default]" > $HOME/.aws/credentials
+          echo "aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $HOME/.aws/credentials
+          echo "aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $HOME/.aws/credentials
+          echo "aws_session_token=${{ secrets.AWS_SESSION_TOKEN }}" >> $HOME/.aws/credentials
 
-            - name: Build AWS credentials file
-              run: |
-                mkdir -p $HOME/.aws
-                echo "[default]" > $HOME/.aws/credentials
-                echo "aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $HOME/.aws/credentials
-                echo "aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $HOME/.aws/credentials
-                echo "aws_session_token=${{ secrets.AWS_SESSION_TOKEN }}" >> $HOME/.aws/credentials
+      - name: Config AWS credentials
+        run: |
+          mkdir -p $HOME/.aws
+          echo "[default]" > $HOME/.aws/config
+          echo "region=us-east-1" >> $HOME/.aws/config
+          echo "output=json" >> $HOME/.aws/config
 
-            - name: Config AWS credentials
-              run: |
-                mkdir -p $HOME/.aws
-                echo "[default]" > $HOME/.aws/config
-                echo "region=us-east-1" >> $HOME/.aws/config
-                echo "output=json" >> $HOME/.aws/config
-            
-            - name: Build infraestructura
-              run: |
-                cd terraform
-                terraform init
-                terraform plan
-                terraform apply -auto-approve
+      - name: Build infraestructura
+        run: |
+          cd terraform
+          terraform init
+          terraform plan
+          terraform apply -auto-approve
 
-            - name: Obtener IPs de EC2 
-              env:
-                 AWS_REGION: us-east-1
-              run: |
-                   export IP_SERVER=$(aws ec2 describe-instances --region $AWS_REGION --filters "Name=tag:Name,Values=ec2-modulos" --query "Reservations[].Instances[].PublicIpAddress" --output text)
-                    echo "IP_SERVER=$IP_SERVER" >> $GITHUB_ENV
+      - name: Obtener IPs de EC2
+        env:
+          AWS_REGION: us-east-1
+        run: |
+          export IP_SERVER=$(aws ec2 describe-instances --region $AWS_REGION --filters "Name=tag:Name,Values=ec2-modulos" --query "Reservations[].Instances[].PublicIpAddress" --output text)
+          echo "IP_SERVER=$IP_SERVER" >> $GITHUB_ENV
 
-            - name: Crear carpeta en el servidor AWS 
-              uses: appleboy/ssh-action@v1
-              with:
-                    host: ${{env.IP_SERVER}}
-                    username: ${{ secrets.USERNAME }}
-                    key: ${{ secrets.PRIVATE_KEY }}
-                    port: ${{ secrets.PORT }}
-                    script: |
-                            mkdir -p /home/ubuntu/web
+      - name: Crear carpeta en el servidor AWS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ env.IP_SERVER }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.PRIVATE_KEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            mkdir -p /home/ubuntu/web
 
-            - name: Sincronizar archivos con el servidor
-              uses: burnett01/rsync-deployments@7.0.2
-              with:
-                switches: "-avz --delete"  # Opciones de rsync
-                path: "./web"  # Directorio de origen (los archivos del repositorio)
-                remote_host: ${{ env.IP_SERVER }}  # Dirección IP del servidor
-                remote_user: ${{ secrets.USERNAME }}  # Usuario SSH en el servidor
-                remote_path: "/home/ubuntu/web/"  # Ruta de destino en el servidor
-                remote_key: ${{ secrets.PRIVATE_KEY }}  # Clave SSH para autenticar
-                remote_port: ${{ secrets.PORT }}  # Puerto SSH (si es distinto del predeterminado 22)
+      - name: Sincronizar archivos con el servidor
+        uses: burnett01/rsync-deployments@7.0.2
+        with:
+          switches: "-avz --delete"  # Opciones de rsync
+          path: "./web"  # Directorio de origen (los archivos del repositorio)
+          remote_host: ${{ env.IP_SERVER }}  # Dirección IP del servidor
+          remote_user: ${{ secrets.USERNAME }}  # Usuario SSH en el servidor
+          remote_path: "/home/ubuntu/web/"  # Ruta de destino en el servidor
+          remote_key: ${{ secrets.PRIVATE_KEY }}  # Clave SSH para autenticar
+          remote_port: ${{ secrets.PORT }}  # Puerto SSH (si es distinto del predeterminado 22)
 
-            - name: Levantar docker-compose 
-              uses: appleboy/ssh-action@v1
-              with:
-                    host: ${{ env.IP_SERVER }}
-                    username: ${{ secrets.USERNAME }}
-                    key: ${{ secrets.PRIVATE_KEY }}
-                    port: ${{ secrets.PORT }}
-                    script: |
-                            cd /home/ubuntu/web/web
-                            docker compose down
-                            docker compose up -d --build
+      - name: Levantar docker-compose
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ env.IP_SERVER }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.PRIVATE_KEY }}
+          port: ${{ secrets.PORT }}
+          script: |
+            cd /home/ubuntu/web/web
+            docker compose down
+            docker compose up -d --build
